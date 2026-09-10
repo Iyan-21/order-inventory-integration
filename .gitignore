@@ -1,22 +1,17 @@
-# Java / Maven
-backend/target/
-*.class
-*.jar
-
-# IDE
+# IntelliJ
 .idea/
 *.iml
-.vscode/
 
-# Environment / secrets - NEVER commit these
+# Environment variables
 .env
 .env.local
-**/application-local.properties
 
-# Node / React
+# Maven
+target/
+
+# Node / frontend
 frontend/node_modules/
 frontend/dist/
-frontend/.env
 
 # OS
 .DS_Store
