@@ -1,15 +1,26 @@
 package edu.cit.Abesia.shop;
-
+import edu.cit.Abesia.inventory.Inventory;
+import java.util.List;
+import java.util.stream.Collectors;
 public class OrderResponse {
 
+    private Integer orderId;
     private String status;
     private String reason;
-    private InventorySnapshot inventory;
+    private List<ItemOutcome> items;
+    private List<InventorySnapshot> inventory;
 
-    public OrderResponse(String status, String reason, InventorySnapshot inventory) {
+    public OrderResponse(Integer orderId, String status, String reason,
+                         List<ItemOutcome> items, List<InventorySnapshot> inventory) {
+        this.orderId = orderId;
         this.status = status;
         this.reason = reason;
+        this.items = items;
         this.inventory = inventory;
+    }
+
+    public Integer getOrderId() {
+        return orderId;
     }
 
     public String getStatus() {
@@ -20,13 +31,32 @@ public class OrderResponse {
         return reason;
     }
 
-    public InventorySnapshot getInventory() {
+    public List<ItemOutcome> getItems() {
+        return items;
+    }
+
+    public List<InventorySnapshot> getInventory() {
         return inventory;
     }
 
-    // Small nested DTO so we never leak the actual Inventory JPA entity
-    // (or the inventory package's internals) across the module boundary
-    // into the REST response.
+    public static class ItemOutcome {
+        private String productId;
+        private String outcome;
+
+        public ItemOutcome(String productId, String outcome) {
+            this.productId = productId;
+            this.outcome = outcome;
+        }
+
+        public String getProductId() {
+            return productId;
+        }
+
+        public String getOutcome() {
+            return outcome;
+        }
+    }
+
     public static class InventorySnapshot {
         private String productId;
         private String name;

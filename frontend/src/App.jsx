@@ -1,87 +1,104 @@
-import { useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import './App.css';
-
-const PRODUCTS = [
-  { id: 'P100', label: 'Wireless Mouse (P100)' },
-  { id: 'P200', label: 'Mechanical Keyboard (P200)' },
-  { id: 'P300', label: 'USB-C Hub (P300)' },
-];
+import Cart from './components/Cart';
+import InventoryTable from './components/InventoryTable';
+import OrderHistory from './components/OrderHistory';
+import NotificationFeed from './components/NotificationFeed';
+import { getInventory, getOrders, getNotifications, placeOrder, cancelOrder } from './api';
 
 function App() {
-  const [productId, setProductId] = useState(PRODUCTS[0].id);
-  const [quantity, setQuantity] = useState(1);
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [inventory, setInventory] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [banner, setBanner] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [cancellingId, setCancellingId] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    setResult(null);
-
+  const refreshAll = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:8080/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId, quantity: Number(quantity) }),
-      });
-
-      const data = await res.json();
-      setResult(data);
+      const [inv, ord, notif] = await Promise.all([
+        getInventory(),
+        getOrders(),
+        getNotifications(),
+      ]);
+      setInventory(inv);
+      setOrders(ord);
+      setNotifications(notif);
     } catch (err) {
-      setError('Could not reach the server. Is the backend running on :8080?');
+      setBanner({ type: 'error', message: err.message });
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshAll().finally(() => setLoading(false));
+  }, [refreshAll]);
+
+  const handlePlaceOrder = async (items) => {
+    setSubmitting(true);
+    setBanner(null);
+    try {
+      const result = await placeOrder(items);
+      setBanner({
+        type: result.status === 'CONFIRMED' ? 'success' : 'error',
+        message:
+          result.status === 'CONFIRMED'
+            ? `Order #${result.orderId} confirmed.`
+            : `Order rejected: ${result.reason}`,
+      });
+      await refreshAll();
+    } catch (err) {
+      setBanner({ type: 'error', message: err.message });
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
+  const handleCancel = async (orderId) => {
+    setCancellingId(orderId);
+    setBanner(null);
+    try {
+      await cancelOrder(orderId);
+      setBanner({ type: 'success', message: `Order #${orderId} cancelled and restocked.` });
+      await refreshAll();
+    } catch (err) {
+      setBanner({ type: 'error', message: err.message });
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="console-wide">
+        <p className="loading-text">Loading…</p>
+      </div>
+    );
+  }
+
   return (
-    <div style={{ maxWidth: 420, margin: '60px auto', fontFamily: 'sans-serif' }}>
-      <h2>Place an Order</h2>
+    <div className="console-wide">
+      <div className="console-header">
+        <div className="console-eyebrow">ORDER &amp; INVENTORY CONSOLE</div>
+        <h1 className="console-title">Operations dashboard</h1>
+      </div>
 
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: 12 }}>
-          <label>Product</label><br />
-          <select value={productId} onChange={(e) => setProductId(e.target.value)}>
-            {PRODUCTS.map((p) => (
-              <option key={p.id} value={p.id}>{p.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div style={{ marginBottom: 12 }}>
-          <label>Quantity</label><br />
-          <input
-            type="number"
-            min="1"
-            value={quantity}
-            onChange={(e) => setQuantity(e.target.value)}
-          />
-        </div>
-
-        <button type="submit" disabled={loading}>
-          {loading ? 'Placing order...' : 'Submit Order'}
-        </button>
-      </form>
-
-      {error && (
-        <p style={{ color: 'red', marginTop: 20 }}>{error}</p>
-      )}
-
-      {result && (
-        <div style={{ marginTop: 20, padding: 16, border: '1px solid #ccc', borderRadius: 8 }}>
-          <h3 style={{ color: result.status === 'CONFIRMED' ? 'green' : 'red' }}>
-            {result.status}
-          </h3>
-          {result.reason && <p><strong>Reason:</strong> {result.reason}</p>}
-          {result.inventory && (
-            <p>
-              <strong>{result.inventory.name}</strong> — stock remaining: {result.inventory.stock}
-            </p>
-          )}
+      {banner && (
+        <div className={`error-banner ${banner.type === 'success' ? 'banner-success' : ''}`}>
+          {banner.message}
         </div>
       )}
+
+      <div className="dashboard-grid">
+        <div className="dashboard-col">
+          <Cart inventory={inventory} onSubmit={handlePlaceOrder} submitting={submitting} />
+          <InventoryTable inventory={inventory} />
+        </div>
+        <div className="dashboard-col">
+          <OrderHistory orders={orders} onCancel={handleCancel} cancellingId={cancellingId} />
+          <NotificationFeed notifications={notifications} />
+        </div>
+      </div>
     </div>
   );
 }

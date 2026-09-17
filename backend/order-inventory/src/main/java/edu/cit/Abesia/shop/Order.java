@@ -3,6 +3,8 @@ package edu.cit.Abesia.shop;
 import jakarta.persistence.*;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "orders")
@@ -12,12 +14,6 @@ public class Order {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "order_id")
     private Integer orderId;
-
-    @Column(name = "product_id", nullable = false)
-    private String productId;
-
-    @Column(nullable = false)
-    private int quantity;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -29,13 +25,13 @@ public class Order {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<OrderItem> items = new ArrayList<>();
+
     protected Order() {
-        // JPA requires a no-arg constructor
     }
 
-    public Order(String productId, int quantity, OrderStatus status, String reason) {
-        this.productId = productId;
-        this.quantity = quantity;
+    public Order(OrderStatus status, String reason) {
         this.status = status;
         this.reason = reason;
         this.createdAt = Instant.now();
@@ -45,16 +41,12 @@ public class Order {
         return orderId;
     }
 
-    public String getProductId() {
-        return productId;
-    }
-
-    public int getQuantity() {
-        return quantity;
-    }
-
     public OrderStatus getStatus() {
         return status;
+    }
+
+    public void setStatus(OrderStatus status) {
+        this.status = status;
     }
 
     public String getReason() {
@@ -63,5 +55,14 @@ public class Order {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public List<OrderItem> getItems() {
+        return items;
+    }
+
+    public void addItem(OrderItem item) {
+        items.add(item);
+        item.setOrder(this);
     }
 }

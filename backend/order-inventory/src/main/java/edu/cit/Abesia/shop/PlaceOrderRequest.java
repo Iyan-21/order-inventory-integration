@@ -1,27 +1,37 @@
 package edu.cit.Abesia.shop;
 
+import java.util.List;
+
 public class PlaceOrderRequest {
 
-    private String productId;
-    private int quantity;
+    private List<LineItem> items;
 
-    public PlaceOrderRequest() {
-        // needed for JSON deserialization
+    public List<LineItem> getItems() {
+        return items;
     }
 
-    public String getProductId() {
-        return productId;
+    public void setItems(List<LineItem> items) {
+        this.items = items;
     }
 
-    public void setProductId(String productId) {
-        this.productId = productId;
-    }
+    public static class LineItem {
+        private String productId;
+        private int quantity;
 
-    public int getQuantity() {
-        return quantity;
-    }
+        public String getProductId() {
+            return productId;
+        }
 
-    public void setQuantity(int quantity) {
-        this.quantity = quantity;
+        public void setProductId(String productId) {
+            this.productId = productId;
+        }
+
+        public int getQuantity() {
+            return quantity;
+        }
+
+        public void setQuantity(int quantity) {
+            this.quantity = quantity;
+        }
     }
 }

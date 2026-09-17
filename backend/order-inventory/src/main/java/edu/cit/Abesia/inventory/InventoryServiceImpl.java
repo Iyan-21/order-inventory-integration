@@ -1,20 +1,24 @@
 package edu.cit.Abesia.inventory;
 
+import edu.cit.Abesia.events.LowStockEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
-// No "public" modifier -> package-private. The shop/Order module cannot see
-// this class directly; it can only depend on the InventoryService interface,
-// which is public. This is the enforced module boundary the assignment asks for.
 @Service
 class InventoryServiceImpl implements InventoryService {
 
-    private final InventoryRepository inventoryRepository;
+    private static final int LOW_STOCK_THRESHOLD = 5;
 
-    InventoryServiceImpl(InventoryRepository inventoryRepository) {
+    private final InventoryRepository inventoryRepository;
+    private final ApplicationEventPublisher eventPublisher;
+
+    InventoryServiceImpl(InventoryRepository inventoryRepository, ApplicationEventPublisher eventPublisher) {
         this.inventoryRepository = inventoryRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -34,11 +38,31 @@ class InventoryServiceImpl implements InventoryService {
         Inventory item = itemOpt.get();
 
         if (quantity > item.getStock()) {
-            return false; // not enough stock -> reject
+            return false;
         }
 
-        item.setStock(item.getStock() - quantity);
+        int newStock = item.getStock() - quantity;
+        item.setStock(newStock);
         inventoryRepository.save(item);
+
+        if (newStock < LOW_STOCK_THRESHOLD) {
+            eventPublisher.publishEvent(new LowStockEvent(productId, item.getName(), newStock));
+        }
+
         return true;
     }
+
+    @Override
+    @Transactional
+    public void restock(String productId, int quantity) {
+        inventoryRepository.findById(productId).ifPresent(item -> {
+            item.setStock(item.getStock() + quantity);
+            inventoryRepository.save(item);
+        });
+    }
+    @Override
+    public List<Inventory> getAllItems() {
+        return inventoryRepository.findAll();
+    }
+
 }
