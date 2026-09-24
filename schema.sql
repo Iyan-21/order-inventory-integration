@@ -78,3 +78,16 @@ INSERT INTO inventory (product_id, name, stock) VALUES
     ('P100', 'Wireless Mouse', 25),
     ('P200', 'Mechanical Keyboard', 10),
     ('P300', 'USB-C Hub', 0);
+
+CREATE TABLE IF NOT EXISTS supplier_orders (
+    id          SERIAL PRIMARY KEY,
+    product_id  VARCHAR(50) NOT NULL REFERENCES inventory(product_id),
+    buyer_ref   VARCHAR(40) NOT NULL UNIQUE,
+    request_id  VARCHAR(80) NOT NULL,
+    po_number   VARCHAR(50),
+    cases       INTEGER NOT NULL,
+    units       INTEGER NOT NULL,
+    status      VARCHAR(20) NOT NULL,
+    created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
+);
