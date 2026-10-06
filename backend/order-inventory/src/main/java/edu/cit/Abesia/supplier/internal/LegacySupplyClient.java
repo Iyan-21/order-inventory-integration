@@ -1,22 +1,28 @@
 package edu.cit.Abesia.supplier.internal;
 
 import edu.cit.Abesia.supplier.internal.xml.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
-import java.net.http.HttpClient;
-import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.net.http.HttpClient;
 import java.time.Duration;
+import java.util.function.Supplier;
 
 @Component
 class LegacySupplyClient {
 
+    private static final Logger log = LoggerFactory.getLogger(LegacySupplyClient.class);
     private static final int MAX_ATTEMPTS = 3;
     private static final Duration INITIAL_BACKOFF = Duration.ofMillis(500);
+    private static final Duration TIMEOUT = Duration.ofSeconds(3);
 
     private final RestClient restClient;
     private final String clientId;
@@ -28,103 +34,84 @@ class LegacySupplyClient {
             @Value("${legacysupply.client-id}") String clientId,
             @Value("${legacysupply.api-key}") String apiKey
     ) {
-        HttpClient httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(3))
-                .build();
-        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
-        requestFactory.setReadTimeout(Duration.ofSeconds(3));
-
-        this.restClient = RestClient.builder()
-                .baseUrl(baseUrl)
-                .requestFactory(requestFactory)
-                .build();
+        HttpClient httpClient = HttpClient.newBuilder().connectTimeout(TIMEOUT).build();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
+        factory.setReadTimeout(TIMEOUT);
+        this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
         this.clientId = clientId;
         this.apiKey = apiKey;
     }
 
-    private void authenticate() {
-        AuthRequestXml req = new AuthRequestXml(clientId, apiKey);
-        AuthResponseXml res = restClient.post()
-                .uri("/auth/token")
-                .contentType(MediaType.APPLICATION_XML)
-                .body(req)
-                .retrieve()
-                .body(AuthResponseXml.class);
-        session.set(res.SessionToken);
-    }
-
-    private void ensureSession() {
+    private synchronized void ensureSession() {
         if (!session.hasToken()) {
-            authenticate();
+            AuthResponseXml res = restClient.post()
+                    .uri("/auth/token")
+                    .contentType(MediaType.APPLICATION_XML)
+                    .body(new AuthRequestXml(clientId, apiKey))
+                    .retrieve()
+                    .body(AuthResponseXml.class);
+            session.set(res.SessionToken);
         }
     }
 
-    PurchaseOrderAckXml placeOrder(PurchaseOrderXml order, String requestId) {
+    /** Runs a call with the session; on any 401 drops the session, signs in again and repeats once. */
+    private <T> T withSession(Supplier<T> call) {
         ensureSession();
-
-        RestClientException lastError = null;
-        Duration backoff = INITIAL_BACKOFF;
-
-        // Same requestId on every attempt — this is what makes retries idempotent
-        // against LegacySupply, not just against our own DB.
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            try {
-                return attemptPlaceOrder(order, requestId);
-            } catch (RestClientException e) {
-                lastError = e;
-                if (attempt < MAX_ATTEMPTS) {
-                    sleepBackoff(backoff);
-                    backoff = backoff.multipliedBy(2);
-                }
-            }
-        }
-        throw lastError;
-    }
-
-    private PurchaseOrderAckXml attemptPlaceOrder(PurchaseOrderXml order, String requestId) {
         try {
-            return doPlaceOrder(order, requestId);
+            return call.get();
         } catch (HttpClientErrorException.Unauthorized e) {
-            // session expired mid-flight — refresh once and retry within this same attempt
-            session.invalidate();
-            authenticate();
-            return doPlaceOrder(order, requestId);
+            Duration age = session.invalidate();
+            log.info("LegacySupply rejected the session after {} s; signing in again", age.toSeconds());
+            ensureSession();
+            return call.get();
         }
     }
 
-    private PurchaseOrderAckXml doPlaceOrder(PurchaseOrderXml order, String requestId) {
-        return restClient.post()
+    /** Same requestId on every attempt: that is what makes retries idempotent on LegacySupply's side. */
+    PurchaseOrderAckXml placeOrder(PurchaseOrderXml order, String requestId) {
+        return withRetry(() -> withSession(() -> restClient.post()
                 .uri("/purchase-orders")
                 .contentType(MediaType.APPLICATION_XML)
                 .header("X-LS-Session", session.getToken())
                 .header("X-Request-Id", requestId)
                 .body(order)
                 .retrieve()
-                .body(PurchaseOrderAckXml.class);
+                .body(PurchaseOrderAckXml.class)));
     }
 
     PurchaseOrderStatusXml getOrderStatus(String poNumber) {
-        ensureSession();
-        try {
-            return doGetStatus(poNumber);
-        } catch (HttpClientErrorException.Unauthorized e) {
-            session.invalidate();
-            authenticate();
-            return doGetStatus(poNumber);
-        }
-    }
-
-    private PurchaseOrderStatusXml doGetStatus(String poNumber) {
-        return restClient.get()
+        return withRetry(() -> withSession(() -> restClient.get()
                 .uri("/purchase-orders/{po}", poNumber)
                 .header("X-LS-Session", session.getToken())
                 .retrieve()
-                .body(PurchaseOrderStatusXml.class);
+                .body(PurchaseOrderStatusXml.class)));
     }
 
-    private void sleepBackoff(Duration duration) {
+    /** At most 3 attempts with exponential backoff; only transient failures (5xx, timeouts, I/O) are retried. */
+    private <T> T withRetry(Supplier<T> call) {
+        Duration backoff = INITIAL_BACKOFF;
+        RuntimeException last = null;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                return call.get();
+            } catch (HttpServerErrorException e) {          // 503 etc.
+                last = e;
+            } catch (HttpClientErrorException e) {          // 4xx: our mistake or 429 quota -> do not hammer
+                throw e;
+            } catch (RestClientException e) {               // timeout / connection refused
+                last = e;
+            }
+            if (attempt < MAX_ATTEMPTS) {
+                sleep(backoff);
+                backoff = backoff.multipliedBy(2);
+            }
+        }
+        throw last;
+    }
+
+    private void sleep(Duration d) {
         try {
-            Thread.sleep(duration.toMillis());
+            Thread.sleep(d.toMillis());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted during LegacySupply retry backoff", e);

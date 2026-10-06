@@ -10,8 +10,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.Map;
 
+/** Sends PENDING supplier orders later. Always reuses the persisted X-Request-Id, so it can never duplicate a PO. */
 @Component
 class SupplierOrderRetryJob {
 
@@ -20,60 +20,43 @@ class SupplierOrderRetryJob {
     private final SupplierOrderRepository repository;
     private final LegacySupplyClient client;
 
-    // duplicated from SupplierGatewayImpl for now — see note below
-    private static final Map<String, String> SKU_BY_PRODUCT = Map.of(
-            "P100", "ZZA-1307",
-            "P200", "ZZA-2133",
-            "P300", "ZZA-4556"
-    );
-
     SupplierOrderRetryJob(SupplierOrderRepository repository, LegacySupplyClient client) {
         this.repository = repository;
         this.client = client;
     }
 
-    @Scheduled(fixedDelay = 60_000) // every 60s; tune to stay within LegacySupply's quota
+    @Scheduled(fixedDelay = 60_000, initialDelay = 15_000)
     void resendPendingOrders() {
         List<SupplierOrder> pending = repository.findByStatus(SupplierOrderStatus.PENDING);
-        if (pending.isEmpty()) {
-            return;
-        }
+        if (pending.isEmpty()) return;
         log.info("Retry job found {} PENDING supplier order(s)", pending.size());
 
         for (SupplierOrder order : pending) {
-            resend(order);
+            if (!resend(order)) {
+                break; // supplier still down / throttled: stop this cycle to protect the quota
+            }
         }
     }
 
-    private void resend(SupplierOrder order) {
-        String sku = SKU_BY_PRODUCT.get(order.getProductId());
-        if (sku == null) {
+    private boolean resend(SupplierOrder order) {
+        ProductMapping mapping = ProductMapping.forProduct(order.getProductId()).orElse(null);
+        if (mapping == null) {
             log.error("No SKU mapping for pending order {} product {}", order.getId(), order.getProductId());
-            return;
+            order.updateStatus(SupplierOrderStatus.FAILED);
+            repository.save(order);
+            return true;
         }
         try {
-            PurchaseOrderXml req = new PurchaseOrderXml(sku, order.getCases(), order.getBuyerRef());
-            // Same requestId every time — order.getRequestId() was persisted on first attempt,
-            // so this is the same X-Request-Id LegacySupply may have already seen.
-            PurchaseOrderAckXml ack = client.placeOrder(req, order.getRequestId());
-
-            SupplierOrderStatus status = mapStatusCode(ack.StatusCode);
-            order.markSent(ack.PoNumber, status);
+            PurchaseOrderAckXml ack = client.placeOrder(
+                    new PurchaseOrderXml(mapping.supplierSku(), order.getCases(), order.getBuyerRef()),
+                    order.getRequestId());
+            order.markSent(ack.PoNumber, StatusMapper.map(ack.StatusCode));
             repository.save(order);
-            log.info("Resent pending order {} -> status {}", order.getId(), status);
+            log.info("Resent pending order {} -> {}", order.getBuyerRef(), order.getStatus());
+            return true;
         } catch (Exception e) {
-            // still PENDING, still safe, will be picked up again next run
-            log.warn("Retry failed for pending order {}: {}", order.getId(), e.getMessage());
+            log.warn("Retry failed for {}: {}", order.getBuyerRef(), e.getMessage());
+            return false;
         }
-    }
-
-    private SupplierOrderStatus mapStatusCode(int code) {
-        return switch (code) {
-            case 10 -> SupplierOrderStatus.ACCEPTED;
-            case 20 -> SupplierOrderStatus.PICKING;
-            case 30 -> SupplierOrderStatus.SHIPPED;
-            case 40 -> SupplierOrderStatus.DELIVERED;
-            default -> SupplierOrderStatus.UNKNOWN;
-        };
     }
 }

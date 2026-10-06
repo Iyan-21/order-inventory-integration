@@ -37,6 +37,7 @@ ON CONFLICT (product_id) DO UPDATE
 -- UPDATE SCHEMA
 
 -- Drop in dependency order
+DROP TABLE IF EXISTS supplier_orders CASCADE;
 DROP TABLE IF EXISTS notifications CASCADE;
 DROP TABLE IF EXISTS order_items CASCADE;
 DROP TABLE IF EXISTS orders CASCADE;

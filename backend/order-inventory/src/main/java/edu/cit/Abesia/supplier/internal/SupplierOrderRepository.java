@@ -6,7 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
 
-public interface SupplierOrderRepository extends JpaRepository<SupplierOrder, Long> {
+interface SupplierOrderRepository extends JpaRepository<SupplierOrder, Long> {
     Optional<SupplierOrder> findByBuyerRef(String buyerRef);
     List<SupplierOrder> findByStatus(SupplierOrderStatus status);
     List<SupplierOrder> findByStatusIn(List<SupplierOrderStatus> statuses);
