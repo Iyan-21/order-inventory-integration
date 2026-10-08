@@ -101,6 +101,48 @@ public class OrderService {
         return CancelResult.success(order);
     }
 
+    /** Records an order that cannot be filled yet because stock is on its way. Reserves nothing. */
+    @Transactional
+    public Integer placeBackorder(List<PlaceOrderRequest.LineItem> lineItems) {
+        Order backordered = new Order(OrderStatus.BACKORDERED, "Waiting for incoming stock");
+        for (PlaceOrderRequest.LineItem line : lineItems) {
+            backordered.addItem(new OrderItem(line.getProductId(), line.getQuantity()));
+        }
+        orderRepository.save(backordered);
+        return backordered.getOrderId();
+    }
+
+    public enum BackorderOutcome { CONFIRMED, ALREADY_CONFIRMED, STILL_SHORT, CANCELLED, NOT_FOUND }
+
+    /** Tries to reserve a backordered order's stock now (all-or-nothing). */
+    @Transactional
+    public BackorderOutcome fulfilBackorder(Integer orderId) {
+        Optional<Order> orderOpt = orderRepository.findById(orderId);
+        if (orderOpt.isEmpty()) {
+            return BackorderOutcome.NOT_FOUND;
+        }
+        Order order = orderOpt.get();
+        if (order.getStatus() == OrderStatus.CONFIRMED) {
+            return BackorderOutcome.ALREADY_CONFIRMED;
+        }
+        if (order.getStatus() != OrderStatus.BACKORDERED) {
+            return BackorderOutcome.CANCELLED;
+        }
+        for (OrderItem item : order.getItems()) {
+            Optional<Inventory> inv = inventoryService.getItem(item.getProductId());
+            if (inv.isEmpty() || item.getQuantity() > inv.get().getStock()) {
+                return BackorderOutcome.STILL_SHORT;
+            }
+        }
+        for (OrderItem item : order.getItems()) {
+            inventoryService.reserve(item.getProductId(), item.getQuantity());
+        }
+        order.setStatus(OrderStatus.CONFIRMED);
+        orderRepository.save(order);
+        eventPublisher.publishEvent(new OrderPlacedEvent(order.getOrderId()));
+        return BackorderOutcome.CONFIRMED;
+    }
+
     public List<Order> getAllOrders() {
         return orderRepository.findAll();
     }

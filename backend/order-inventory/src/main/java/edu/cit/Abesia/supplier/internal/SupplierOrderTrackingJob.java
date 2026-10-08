@@ -1,6 +1,8 @@
 package edu.cit.Abesia.supplier.internal;
 
+import edu.cit.Abesia.events.SupplierOrderCancelledEvent;
 import edu.cit.Abesia.events.SupplierOrderDeliveredEvent;
+import edu.cit.Abesia.supplier.SupplierGateway;
 import edu.cit.Abesia.supplier.SupplierOrder;
 import edu.cit.Abesia.supplier.SupplierOrderStatus;
 import edu.cit.Abesia.supplier.internal.xml.PurchaseOrderStatusXml;
@@ -28,9 +30,11 @@ class SupplierOrderTrackingJob {
     private final LegacySupplyClient client;
     private final ApplicationEventPublisher events;
     private final TransactionTemplate tx;
+    private final SupplierGateway gateway;
 
     SupplierOrderTrackingJob(SupplierOrderRepository repository, LegacySupplyClient client,
-                             ApplicationEventPublisher events, TransactionTemplate tx) {
+                             ApplicationEventPublisher events, TransactionTemplate tx, SupplierGateway gateway) {
+        this.gateway = gateway;
         this.repository = repository;
         this.client = client;
         this.events = events;
@@ -72,7 +76,22 @@ class SupplierOrderTrackingJob {
             if (next == SupplierOrderStatus.DELIVERED) {
                 events.publishEvent(new SupplierOrderDeliveredEvent(
                         order.getProductId(), order.getUnits(), order.getPoNumber()));
+            } else if (next == SupplierOrderStatus.CANCELLED) {
+                events.publishEvent(new SupplierOrderCancelledEvent(
+                        order.getProductId(), order.getUnits(), order.getPoNumber()));
             }
         });
+
+        // The stock will never arrive: no restock, and place ONE replacement order (new BuyerRef/request id).
+        // The cancelled row leaves the polling set, so this runs once per cancelled order.
+        if (next == SupplierOrderStatus.CANCELLED) {
+            try {
+                gateway.reorder(order.getProductId(), order.getUnits());
+                log.warn("{} was cancelled; replacement order placed for {} units of {}",
+                        order.getPoNumber(), order.getUnits(), order.getProductId());
+            } catch (Exception e) {
+                log.error("{} was cancelled and the replacement failed: {}", order.getPoNumber(), e.getMessage());
+            }
+        }
     }
 }

@@ -6,6 +6,7 @@ public enum SupplierOrderStatus {
     PICKING,    // LS StatusCode 20
     SHIPPED,    // LS StatusCode 30
     DELIVERED,  // LS StatusCode 40
+    CANCELLED,  // LS StatusCode 90 (undocumented): order will never arrive
     FAILED,     // gave up after retries
     UNKNOWN     // LS returned a status code we don't recognize
 }

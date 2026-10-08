@@ -163,3 +163,27 @@ Publishing an event means OrderService doesn't need to know Notification exists 
 **3. You now have three modules and two distinct event types. If forced to extract exactly one module into its own microservice first, which would you pick and why — and what changes in your code to do it?**
 -
 I'd extract Notification first, not Inventory. Notification only listens and logs — nothing depends on it to keep working, so if it goes down, orders can still go through fine. Inventory is way riskier to split first since every single order depends on it directly. To actually extract Notification, I'd swap the in-process event publisher for a message broker, and give Notification its own database instead of sharing tables with the monolith. Order and Inventory's logic barely changes since they were already just "publish and move on" — only where the event goes would be different.
+---
+
+## Lab 3 – LegacySupply integration
+
+See `INTEGRATION.md` (contract, sessions, errors, units) and `REFLECTION.md`.
+Extra env vars (never commit them): `LS_CLIENT_ID` (student ID), `LS_API_KEY`.
+
+---
+
+## Lab 4 – Tiangge channel (`edu.cit.Abesia.channel`)
+
+The app runs the shop by itself. Everything in `channel` is package-private; Order and Inventory do not import it.
+
+| Task | Where |
+|---|---|
+| Instance id + 30 s heartbeat | `AppInstance` (new UUID per start, sent as `X-Client-Instance` to Tiangge **and** LegacySupply), `ChannelLifecycle` |
+| Listings with supplier mapping | `ChannelLifecycle` (from Inventory + `SupplierGateway.supplierSkuFor`) |
+| Stock sync on every change | Inventory publishes `StockChangedEvent`; `StockSync` listens. Held back until the order decision is sent; failed publishes retried |
+| Decide within 60 s | `OrderFeedPoller` (every 2 s) -> `ChannelOrderProcessor` -> `OrderService` |
+| Exactly-once orders, cursor survives restart | tables `channel_event`, `channel_order`, `channel_state` (`ChannelStore`) |
+| Customer cancellation | `ChannelOrderProcessor.onCancelled` -> `OrderService.cancelOrder` -> confirm -> stock update |
+| Backorders | `ChannelOrderProcessor` (BACKORDERED only if a LegacySupply order is open), `BackorderResolver` on `SupplierOrderDeliveredEvent` |
+
+Environment variables: `LS_CLIENT_ID`, `LS_API_KEY`, `DB_*`, and optionally `TIANGGE_BASE_URL` (default `https://legacysupply.onrender.com/tiangge/v1`).

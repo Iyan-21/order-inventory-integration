@@ -3,6 +3,7 @@ package edu.cit.Abesia.notification;
 import edu.cit.Abesia.events.LowStockEvent;
 import edu.cit.Abesia.events.OrderPlacedEvent;
 import edu.cit.Abesia.events.OrderRejectedEvent;
+import edu.cit.Abesia.events.SupplierOrderCancelledEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -35,6 +36,14 @@ class NotificationListener {
     public void onLowStock(LowStockEvent event) {
         String message = "Reorder needed: " + event.getProductName()
                 + " (" + event.getProductId() + ") is low on stock, " + event.getRemainingStock() + " remaining";
+        notificationRepository.save(new Notification(message));
+    }
+
+    @EventListener
+    public void onSupplierOrderCancelled(SupplierOrderCancelledEvent event) {
+        String message = "Supplier order " + event.getPoNumber() + " was cancelled: "
+                + event.getUnitsNotArriving() + " units of " + event.getProductId()
+                + " will not arrive (replacement ordered)";
         notificationRepository.save(new Notification(message));
     }
 }

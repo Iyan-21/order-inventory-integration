@@ -1,5 +1,6 @@
 package edu.cit.Abesia.supplier.internal;
 
+import edu.cit.Abesia.AppInstance;
 import edu.cit.Abesia.supplier.internal.xml.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,7 +38,8 @@ class LegacySupplyClient {
         HttpClient httpClient = HttpClient.newBuilder().connectTimeout(TIMEOUT).build();
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
         factory.setReadTimeout(TIMEOUT);
-        this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
+        this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(factory)
+                .defaultHeader("X-Client-Instance", AppInstance.ID).build();
         this.clientId = clientId;
         this.apiKey = apiKey;
     }

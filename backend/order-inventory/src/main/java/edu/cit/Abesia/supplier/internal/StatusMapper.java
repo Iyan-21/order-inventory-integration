@@ -12,6 +12,7 @@ final class StatusMapper {
             case 20 -> SupplierOrderStatus.PICKING;
             case 30 -> SupplierOrderStatus.SHIPPED;
             case 40 -> SupplierOrderStatus.DELIVERED;
+            case 90 -> SupplierOrderStatus.CANCELLED; // not in the manual; see INTEGRATION.md
             default -> SupplierOrderStatus.UNKNOWN;
         };
     }

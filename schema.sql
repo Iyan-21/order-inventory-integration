@@ -92,3 +92,30 @@ CREATE TABLE IF NOT EXISTS supplier_orders (
     created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+-- ============================
+-- Lab 4: channel module (Tiangge). The app also creates these itself on startup (CREATE TABLE IF NOT EXISTS).
+-- ============================
+CREATE TABLE IF NOT EXISTS channel_state (
+    state_key   VARCHAR(50) PRIMARY KEY,
+    state_value VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS channel_event (
+    event_id     VARCHAR(100) PRIMARY KEY,
+    processed_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS channel_order (
+    tiangge_order_id VARCHAR(100) PRIMARY KEY,
+    shop_order_id    INTEGER NOT NULL,
+    decision         VARCHAR(20) NOT NULL,
+    decision_reason  VARCHAR(255),
+    decision_sent    BOOLEAN NOT NULL DEFAULT FALSE,
+    resolution       VARCHAR(20),
+    resolution_sent  BOOLEAN NOT NULL DEFAULT FALSE,
+    cancel_applied   BOOLEAN NOT NULL DEFAULT FALSE,
+    cancel_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
+    lines_json       TEXT NOT NULL,
+    created_at       TIMESTAMP NOT NULL DEFAULT NOW()
+);

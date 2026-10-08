@@ -9,6 +9,9 @@ import edu.cit.Abesia.supplier.internal.xml.PurchaseOrderXml;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Optional;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -64,5 +67,16 @@ class SupplierGatewayImpl implements SupplierGateway {
             log.warn("LegacySupply unavailable for {} ({}); kept PENDING for the retry job", order.getBuyerRef(), e.getMessage());
         }
         return new SupplierOrderResult(order.getId(), order.getBuyerRef(), order.getStatus(), order.getPoNumber());
+    }
+
+    @Override
+    public boolean hasOpenOrder(String productId) {
+        return repository.existsByProductIdAndStatusIn(productId,
+                List.of(SupplierOrderStatus.ACCEPTED, SupplierOrderStatus.PICKING, SupplierOrderStatus.SHIPPED));
+    }
+
+    @Override
+    public Optional<String> supplierSkuFor(String productId) {
+        return ProductMapping.forProduct(productId).map(ProductMapping::supplierSku);
     }
 }

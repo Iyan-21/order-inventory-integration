@@ -1,6 +1,7 @@
 package edu.cit.Abesia.inventory;
 
 import edu.cit.Abesia.events.LowStockEvent;
+import edu.cit.Abesia.events.StockChangedEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +45,7 @@ class InventoryServiceImpl implements InventoryService {
         int newStock = item.getStock() - quantity;
         item.setStock(newStock);
         inventoryRepository.save(item);
+        eventPublisher.publishEvent(new StockChangedEvent(productId, newStock));
 
         if (newStock < LOW_STOCK_THRESHOLD) {
             eventPublisher.publishEvent(new LowStockEvent(productId, item.getName(), newStock));
@@ -58,6 +60,7 @@ class InventoryServiceImpl implements InventoryService {
         inventoryRepository.findById(productId).ifPresent(item -> {
             item.setStock(item.getStock() + quantity);
             inventoryRepository.save(item);
+            eventPublisher.publishEvent(new StockChangedEvent(productId, item.getStock()));
         });
     }
     @Override
